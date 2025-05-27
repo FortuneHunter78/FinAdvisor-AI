@@ -1,0 +1,12 @@
+# IDE junk
+*.idea
+
+# Environment
+*.env
+
+# Configs
+apps/inference/config/prod.yml
+
+# GO stuff
+apps/inference/.air.toml
+apps/inference/bin
