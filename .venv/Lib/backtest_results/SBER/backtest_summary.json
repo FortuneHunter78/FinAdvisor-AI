@@ -1,0 +1,51 @@
+{
+    "config": {
+        "window_size": 30,
+        "step_size": 1,
+        "prediction_horizon": 1,
+        "total_predictions": 242
+    },
+    "metrics": {
+        "Price Metrics": {
+            "MSE": 27.630049920328485,
+            "RMSE": 5.256429388884482,
+            "MAE": 3.8210319071142815,
+            "MAPE": 1.3829627914928198
+        },
+        "Direction Metrics": {
+            "Accuracy": 41.735537190082646,
+            "Up Direction": {
+                "Precision": 44.44444444444444,
+                "Recall": 40.33613445378151,
+                "F1 Score": 42.290748898678416,
+                "True Positives": 48,
+                "False Positives": 60
+            },
+            "Down Direction": {
+                "Precision": 48.18181818181818,
+                "Recall": 43.08943089430895,
+                "F1 Score": 45.493562231759654,
+                "True Negatives": 53,
+                "False Negatives": 57
+            }
+        },
+        "Return Metrics": {
+            "Average Return": -0.12143174563831469,
+            "Return Volatility": 1.7862088835084045
+        }
+    },
+    "returns": {
+        "perfect_strategy": {
+            "final_return": 1962.5198094472776,
+            "annualized_return": 3091.0614144675546
+        },
+        "model_strategy": {
+            "final_return": -28.24581450235055,
+            "annualized_return": -31.59933555420157
+        },
+        "buy_hold_strategy": {
+            "final_return": -5.553298540579343,
+            "annualized_return": -6.328232489169472
+        }
+    }
+}
