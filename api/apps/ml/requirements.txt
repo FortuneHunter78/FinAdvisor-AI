@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+pydantic
+onnxruntime
+numpy
+pandas
+yfinance
+matplotlib
+aiobotocore
+aioboto3

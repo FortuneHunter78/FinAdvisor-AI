@@ -1,0 +1,17 @@
+http_server:
+  port: ":8080"
+  host: "localhost"
+  write_timeout: "1m"
+  read_timeout: "1m"
+  idle_timeout: "1m"
+s3:
+  port: "9000"
+  minio_endpoint: "localhost:9000" # localhost:9000
+  bucket_name: "weights"
+  minio_root_user: "admin"
+  minio_root_password: "password"
+  minio_use_ssl: false
+  s3_vars:
+    expires_in: "24h"
+runtime:
+  profile: "dev"
