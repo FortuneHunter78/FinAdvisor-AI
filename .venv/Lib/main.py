@@ -620,81 +620,187 @@ def get_moex_data(ticker, days=1095):
         end_date = datetime.now()
         start_date = end_date - timedelta(days=days + 100)
 
-        url = f"https://iss.moex.com/iss/engines/stock/markets/shares/securities/{ticker}/trades.json"
-        params = {
-            'from': start_date.strftime('%Y-%m-%d'),
-            'till': end_date.strftime('%Y-%m-%d'),
-            'limit': 100000
+        print(f"Fetching MOEX data for {ticker} from {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
+
+        print(f"Method 1: Requesting latest candles data from MOEX API...")
+        candles_url = f"https://iss.moex.com/iss/engines/stock/markets/shares/securities/{ticker}/candles.json"
+        candles_params = {
+            'interval': 24,
+            'start': 0,
+            'limit': days + 100
         }
 
-        print(
-            f"Fetching detailed data for {ticker} from {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
-
-        response = requests.get(url, params=params)
+        response = requests.get(candles_url, params=candles_params)
         response.raise_for_status()
-
         data = response.json()
 
-        if 'trades' not in data or 'data' not in data['trades']:
-            print(f"No trade data received for {ticker}")
+        daily_data = None
+        
+        if 'candles' in data and 'data' in data['candles'] and data['candles']['data']:
+            columns = data['candles']['columns']
+            candles_data = data['candles']['data']
+            
+            daily_data = pd.DataFrame(candles_data, columns=columns)
+
+            daily_data = daily_data.rename(columns={
+                'begin': 'Date',
+                'open': 'Open',
+                'high': 'High',
+                'low': 'Low',
+                'close': 'Close',
+                'volume': 'Volume'
+            })
+
+            daily_data['Date'] = pd.to_datetime(daily_data['Date'])
+            
+            print(f"Method 1: Got {len(daily_data)} records")
+            if not daily_data.empty:
+                latest_date = daily_data['Date'].max()
+                print(f"Method 1: Latest date: {latest_date.strftime('%Y-%m-%d')}")
+
+        if daily_data is None or daily_data.empty or (datetime.now() - daily_data['Date'].max()).days > 7:
+            print(f"Method 2: Trying securities endpoint...")
+            
+            securities_url = f"https://iss.moex.com/iss/engines/stock/markets/shares/boards/TQBR/securities/{ticker}.json"
+            securities_params = {
+                'iss.meta': 'off',
+                'iss.only': 'securities,marketdata'
+            }
+            
+            try:
+                response = requests.get(securities_url, params=securities_params)
+                response.raise_for_status()
+                sec_data = response.json()
+                
+                if 'marketdata' in sec_data and 'data' in sec_data['marketdata']:
+                    marketdata = sec_data['marketdata']['data']
+                    if marketdata:
+                        print(f"Method 2: Current market data available")
+                        # Получаем текущую цену
+                        current_price = None
+                        for row in marketdata:
+                            if len(row) > 12:
+                                current_price = row[12]
+                                break
+                        
+                        if current_price:
+                            print(f"Method 2: Current price: {current_price}")
+            except Exception as e:
+                print(f"Method 2 failed: {e}")
+
+        if daily_data is None or daily_data.empty or (datetime.now() - daily_data['Date'].max()).days > 7:
+            print(f"Method 3: Trying history endpoint...")
+            
+            history_url = f"https://iss.moex.com/iss/history/engines/stock/markets/shares/securities/{ticker}.json"
+            history_params = {
+                'from': (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d'),
+                'till': datetime.now().strftime('%Y-%m-%d'),
+                'start': 0
+            }
+            
+            try:
+                response = requests.get(history_url, params=history_params)
+                response.raise_for_status()
+                hist_data = response.json()
+                
+                if 'history' in hist_data and 'data' in hist_data['history'] and hist_data['history']['data']:
+                    columns = hist_data['history']['columns']
+                    history_records = hist_data['history']['data']
+                    
+                    hist_df = pd.DataFrame(history_records, columns=columns)
+
+                    column_mapping = {
+                        'TRADEDATE': 'Date',
+                        'OPEN': 'Open',
+                        'HIGH': 'High',
+                        'LOW': 'Low',
+                        'CLOSE': 'Close',
+                        'VOLUME': 'Volume'
+                    }
+                    
+                    hist_df = hist_df.rename(columns=column_mapping)
+                    hist_df['Date'] = pd.to_datetime(hist_df['Date'])
+                    
+                    print(f"Method 3: Got {len(hist_df)} history records")
+                    if not hist_df.empty:
+                        latest_hist_date = hist_df['Date'].max()
+                        print(f"Method 3: Latest history date: {latest_hist_date.strftime('%Y-%m-%d')}")
+
+                        if daily_data is None or daily_data.empty or latest_hist_date > daily_data['Date'].max():
+                            print("Method 3: Using history data as it's more recent")
+
+                            if daily_data is not None and not daily_data.empty:
+                                daily_data = daily_data[daily_data['Date'] < hist_df['Date'].min()]
+                                daily_data = pd.concat([daily_data, hist_df], ignore_index=True)
+                            else:
+                                daily_data = hist_df
+                                
+            except Exception as e:
+                print(f"Method 3 failed: {e}")
+
+        if daily_data is None or daily_data.empty:
+            print(f"No data received for {ticker} from any method")
             return None
 
-        columns = data['trades']['columns']
-        trades_data = data['trades']['data']
-        trades_df = pd.DataFrame(trades_data, columns=columns)
-        trades_df['TRADEDATE'] = pd.to_datetime(trades_df['TRADEDATE'])
-
-        daily_data = trades_df.groupby('TRADEDATE').agg({
-            'PRICE': ['first', 'max', 'min', 'last'],
-            'VALUE': 'sum'
-        }).reset_index()
-
-        daily_data.columns = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
-
         daily_data = daily_data.sort_values('Date')
+        daily_data = daily_data.drop_duplicates(subset=['Date'], keep='last')
+        daily_data = daily_data[daily_data['Volume'] > 0]
 
-        date_range = pd.date_range(start=start_date, end=end_date, freq='D')
-        missing_dates = set(date_range) - set(daily_data['Date'])
+        if not daily_data.empty:
+            latest_date = daily_data['Date'].max()
+            days_since_latest = (datetime.now() - latest_date).days
 
-        if missing_dates:
-            print(f"Fetching additional data for {len(missing_dates)} missing dates...")
+            if days_since_latest > 30:
+                print(f"Method 4: Data is {days_since_latest} days old, trying yfinance fallback...")
 
-            candles_url = f"https://iss.moex.com/iss/engines/stock/markets/shares/securities/{ticker}/candles.json"
-            candles_params = {
-                'from': min(missing_dates).strftime('%Y-%m-%d'),
-                'till': max(missing_dates).strftime('%Y-%m-%d'),
-                'interval': 24
-            }
+                yf_tickers = [
+                    f"{ticker}.ME",
+                    f"{ticker}.MCX",
+                    ticker,
+                ]
+                
+                for yf_ticker in yf_tickers:
+                    try:
+                        print(f"Trying yfinance with ticker: {yf_ticker}")
+                        yf_data = yf.download(yf_ticker, 
+                                            start=(datetime.now() - timedelta(days=days + 100)), 
+                                            end=datetime.now(), 
+                                            progress=False)
+                        
+                        if not yf_data.empty:
+                            yf_data = yf_data.reset_index()
+                            yf_latest = yf_data['Date'].max()
+                            yf_days_old = (datetime.now() - yf_latest).days
+                            
+                            print(f"yfinance data: {len(yf_data)} records, latest: {yf_latest.strftime('%Y-%m-%d')} ({yf_days_old} days old)")
 
-            candles_response = requests.get(candles_url, params=candles_params)
-            candles_response.raise_for_status()
-            candles_data = candles_response.json()
-
-            if 'candles' in candles_data and 'data' in candles_data['candles']:
-                candles_columns = candles_data['candles']['columns']
-
-                candles_df = pd.DataFrame(candles_data['candles']['data'], columns=candles_columns)
-
-                candles_df = candles_df.rename(columns={
-                    'begin': 'Date',
-                    'open': 'Open',
-                    'high': 'High',
-                    'low': 'Low',
-                    'close': 'Close',
-                    'volume': 'Volume'
-                })
-
-                candles_df['Date'] = pd.to_datetime(candles_df['Date'])
-
-                daily_data = pd.concat([daily_data, candles_df], ignore_index=True)
-                daily_data = daily_data.sort_values('Date')
+                            if yf_days_old < days_since_latest:
+                                print(f"Using yfinance data as it's more recent")
+                                daily_data = yf_data
+                                break
+                                
+                    except Exception as e:
+                        print(f"yfinance failed for {yf_ticker}: {e}")
+                        continue
 
         daily_data = daily_data.tail(days)
 
         print(f"Successfully fetched {len(daily_data)} days of data for {ticker}")
-        print(
-            f"Latest data point: {daily_data['Date'].max().strftime('%Y-%m-%d')}, Close: {daily_data['Close'].iloc[-1]:.2f}")
+        if not daily_data.empty:
+            latest_date = daily_data['Date'].max()
+            latest_close = daily_data['Close'].iloc[-1]
+            print(f"Latest data point: {latest_date.strftime('%Y-%m-%d')}, Close: {latest_close:.2f}")
 
+            days_since_latest = (datetime.now() - latest_date).days
+            if days_since_latest > 7:  # Если данные старше недели
+                print(f"WARNING: Latest data is {days_since_latest} days old. Data might be outdated.")
+                print("This might be due to:")
+                print("1. Market holidays or weekends")
+                print("2. MOEX API limitations")
+                print("3. Ticker might be delisted or suspended")
+            else:
+                print(f"Data is recent (last update: {days_since_latest} days ago)")
+        
         return daily_data
 
     except Exception as e:
